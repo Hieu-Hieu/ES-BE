@@ -34,30 +34,28 @@ const registUser = async (req, res) => {
                 }
             }
         })
-        if (existsUser && existsUser.body.hits.hits.length > 0) {
+        if (existsUser?.body?.hits?.hits?.length > 0) {
             res.status(400).send({ error: 'Tài khoản đã tồn tại' })
         } else {
-
             bcrypt.hash(password, 10, async (err, hash) => {
                 if (err) {
-                    return res.status(500).send({ error: "Internal server error" });
+                    res.status(500).send({ error: "Internal server error" });
                 }
                 else {
                     let error;
                     client.index({
                         index: userIndex,
-                        type: '_doc',
                         body: {
                             "name": name,
                             "email": email,
                             "password": hash,
                             "avatar": "https://www.iconpacks.net/icons/2/free-user-icon-3297-thumb.png",
-                            "dateCreated": Date.now()
+                            "dateCreated": Date.now(),
+                            following: [],
+                            follower: [],
                         }
                     }, function (err, resp) {
-
-                        if (resp.body) {
-                            // const result = resp.body.hits.hits;
+                        if (resp?.body) {
                             res.send({ success: "Đăng ký tài khoản thành công!" });
                             console.log(resp.body);
                             return;
@@ -66,13 +64,11 @@ const registUser = async (req, res) => {
                             res.status(404).send({ error: error.name });
                             return;
                         }
+                        console.log(resp)
                     });
                 }
             });
-
-
         }
-
     } catch (error) {
         res.send(error);
         console.log(error)
@@ -139,16 +135,17 @@ const getAll = async (req, res) => {
             index: userIndex,
             from: from,
             size: size,
-            // type: "_doc",
             body: {
                 query: { match_all: {} }
             },
 
         });
-        if (result.body) {
+        if (result?.body) {
             const data = result.body.hits.hits;
             res.send({ total: data.length, data });
             return;
+        } else {
+            res.send({ total: 0, data: [] })
         }
     } catch (error) {
         let err = error.name ? { error: error.name } : error
@@ -159,28 +156,14 @@ const getAll = async (req, res) => {
 const getUserProfile = async (req, res) => {
 
     try {
-        const { _id } = req.body;
-
-        const user = await client.search({
+        const user = await client.get({
             index: userIndex,
-            body: {
-                query: {
-                    match: {
-                        _id: _id
-                    }
-                }
-            }
+            _source_excludes: 'password',
+            id: req.user.id,
         });
-
-        if (user && user.body.hits.total.value >= 1) {
-            const data = user.body.hits.hits[0];
-            const userProfile = {
-                _id: data._id,
-                name: data._source.name,
-                email: data._source.email,
-                avatar: data._source.avatar,
-            }
-            res.status(200).send(userProfile);
+        let usr = user?.body?._source;
+        if (usr) {
+            res.status(200).send({ _id: req.user.id, ...usr });
         } else {
             res.status(404).send({ error: "Không tìm thấy user" })
         }
@@ -190,7 +173,7 @@ const getUserProfile = async (req, res) => {
 }
 
 const searchUser = async (req, res) => {
-    const query = req.query.query;
+    const query = req?.query?.query;
     //  console.log(query)
     if (query) {
         try {
@@ -201,13 +184,12 @@ const searchUser = async (req, res) => {
                         multi_match: {
                             fields: ['name', 'email'],
                             query: query,
-                            // type: 'phrase_prefix',
                         }
                     },
                 }
             });
             if (result) {
-                const data = result.body.hits.hits;
+                const data = result?.body?.hits?.hits;
                 res.status(200).send(data);
             }
         } catch (error) {
@@ -237,11 +219,12 @@ const getUserById = async (req, res) => {
     return;
 }
 
-const followUser = (req, res) => {
+const followUser = async (req, res) => {
     try {
-        const { userId, authorId } = req.body;
+        const { authorId } = req.params;
+        const userId = req.user.id;
         if (userId !== authorId) {
-            client.update({
+            const result = await client.update({
                 index: 'users',
                 id: userId,
                 body: {
@@ -259,9 +242,13 @@ const followUser = (req, res) => {
                     },
                 },
                 refresh: true,
-            }, (err, result) => {
-                res.send({ success: "Followed!" })
             })
+
+            if (result) {
+                res.send({ success: "Followed!" })
+            }
+        } else {
+            res.status(400).send({ error: "You are author" })
         }
     } catch (error) {
         console.log(error)
@@ -280,17 +267,40 @@ const getListFolowOfUser = async (req, res) => {
                     bool: {
                         should: {
                             terms: {
-                                _id: userId,
+                                _id: [userId],
                             },
                         },
                     },
                 },
             }
         }, (err, result) => {
-            // res.send(})
-            console.log(result)
             if (err) {
                 res.send(err)
+            } else {
+                let following = result?.body?.hits?.hits[0]?._source?.following;
+                if (following) {
+                    client.search({
+                        index: userIndex,
+                        _source_excludes: "password",
+                        body: {
+                            query: {
+                                ids: {
+                                    values: following
+                                }
+                            }
+                        },
+                    }, (err, resp) => {
+                        if (err) {
+                            res.send(err);
+                        }
+                        if (resp) {
+                            res.send(resp.body.hits.hits)
+                        }
+                    })
+                } else {
+                    // res.send(result)
+                    res.status(404).send("Not found")
+                }
             }
         })
     } catch (error) {
@@ -298,4 +308,17 @@ const getListFolowOfUser = async (req, res) => {
     }
 }
 
-export { registUser, loginUser, getAll, getUserProfile, searchUser, getUserById, followUser, getListFolowOfUser }
+const updateUser = (req, res) => {
+    // const { userId } = req.body;
+    // client.indices.putMapping({
+    //     index: userIndex,
+    //     id: userId,
+    //     body: {
+    //         following: [],
+    //         follower: [],
+    //     },
+    //     refresh: true,
+    // })
+}
+
+export { registUser, loginUser, getAll, getUserProfile, searchUser, getUserById, followUser, getListFolowOfUser, updateUser }

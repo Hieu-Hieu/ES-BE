@@ -36,7 +36,7 @@ const newComment = async (req, res) => {
 const getCommentByPost = async (req, res) => {
     // const { from = 0, size = 10 } = req.query;
     const { postId } = req.params;
-    console.log(postId)
+    // console.log(postId)
     try {
         const result = await client.search({
             index: Index,
@@ -71,7 +71,7 @@ const getCommentByPost = async (req, res) => {
 const countCommentedOfUser = async (req, res) => {
     try {
         const userId = req.user.id;
-        console.log(userId)
+        // console.log(userId)
         const result = await client.count({
             index: Index,
             body: {
@@ -96,8 +96,8 @@ const countCommentedOfUser = async (req, res) => {
     }
 }
 
-const replyComment = async (req, res) => {
+// const replyComment = async (req, res) => {
 
-}
+// }
 
 export { newComment, getCommentByPost, countCommentedOfUser }

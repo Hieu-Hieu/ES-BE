@@ -14,7 +14,7 @@ cloudinary.config({
 
 
 const newPost = async (req, res) => {
-    const { tags, isPublish = true, title, content, authorName, date } = req.body
+    const { tags, isPublish = true, title, content, date } = req.body
     let publishedAt = "";
     if (isPublish) publishedAt = new Date();
     let coverImg = "";
@@ -29,32 +29,31 @@ const newPost = async (req, res) => {
                     res.status(500).json({
                         error: "Internal server error",
                     });
+                    return;
                 }
                 coverImg = result.secure_url;
-                console.log(coverImg)
+                // console.log(coverImg)
                 cloudinaryId = result.public_id;
             }
         );
     }
 
-    const newPost = {
-        id: "p-" + uniqid(),
-        title: title,
-        slug: slugify(title),
-        tags: tags.split(",") || [],
-        coverImg: coverImg,
-        content: content,
-        isPublish: isPublish,
-        publishedAt: publishedAt,
-        createdAt: date || new Date(),
-        authorId: req.user.id,
-        authorName: req.user.name,
-        likes: [],
-        cloudinaryId: cloudinaryId,
-    }
-
     try {
-        // let err;
+        const newPost = {
+            id: "p-" + uniqid(),
+            title: title,
+            slug: slugify(title),
+            tags: tags.split(",") || [],
+            coverImg: coverImg,
+            content: content,
+            isPublish: isPublish,
+            publishedAt: publishedAt,
+            createdAt: date || new Date(),
+            authorId: req.user.id,
+            authorName: req.user.name,
+            likes: [],
+            cloudinaryId: cloudinaryId,
+        }
         await client.index({
             index: postIndex,
             body: newPost,
@@ -68,7 +67,7 @@ const newPost = async (req, res) => {
 }
 
 const updatePost = async (req, res) => {
-    const { tags, isPublish = true, title, content, authorName, date, slug } = req.body
+    const { tags, isPublish = true, title, content, slug } = req.body
     let publishedAt = "";
     if (isPublish) publishedAt = new Date();
     let coverImg = "";
@@ -94,7 +93,6 @@ const updatePost = async (req, res) => {
     try {
         const oldPost = await getPost(slug)
         if (oldPost._id) {
-            // console.log(oldPost)
             const newSlug = slugify(title)
             let Post = {
                 title: title,
@@ -126,7 +124,6 @@ const updatePost = async (req, res) => {
         console.log(error);
         res.status(500).send(error)
     }
-
 }
 
 
@@ -185,8 +182,6 @@ const getPostBySlug = async (req, res) => {
 const searchPosts = async (req, res) => {
     const { q, hashtag } = req.query;
     let keyword = q;
-    console.log("req.query")
-    console.log(req.query)
     if (hashtag) {
         keyword = "#" + hashtag;
     }
@@ -231,7 +226,7 @@ const getPostByUser = async (req, res) => {
                 },
                 sort: [{ publishedAt: { order: 'desc' } }],
             },
-            size: amount
+            size: 20
         });
         if (result.body) {
             const data = result.body.hits.hits;
@@ -273,30 +268,35 @@ const getPostsOfAuthor = async (req, res) => {
 }
 
 const listPostByTag = async (tag) => {
-    const result = await client.search({
-        index: postIndex,
-        size: 5,
-        body: {
-            query: {
-                match: {
-                    tags: tag
-                }
-            },
-        }
-    })
+    let kq = []
+    try {
+        const result = await client.search({
+            index: postIndex,
+            size: 5,
+            body: {
+                query: {
+                    match: {
+                        tags: tag
+                    }
+                },
+            }
+        })
 
-    const kq = result.body.hits.hits.map(item => {
-        return {
-            _id: item._id,
-            title: item._source.title,
-            authorName: item._source.authorName,
-            authorId: item._source.authorId,
-            likes: item._source.likes,
-            tags: item._source.tags,
-            slug: item._source.slug,
-        }
-    });
+        kq = result?.body?.hits?.hits.map(item => {
+            return {
+                _id: item._id,
+                title: item._source.title,
+                authorName: item._source.authorName,
+                authorId: item._source.authorId,
+                likes: item._source.likes,
+                tags: item._source.tags,
+                slug: item._source.slug,
+            }
+        });
 
+    } catch (error) {
+        return kq;
+    }
     return kq;
 }
 
@@ -353,7 +353,7 @@ const getPopularTagsWithPost = async (req, res) => {
 }
 
 const getPost = async (slug) => {
-    console.log(slug)
+    // console.log(slug)
     try {
         const result = await client.search({
             index: postIndex,
@@ -404,6 +404,63 @@ const likePost = async (req, res) => {
     }
 }
 
+const getTagsOfUser = async (req, res) => {
+    try {
+        const result = await client.search({
+            index: postIndex,
+            size: 0,
+            body: {
+                query: {
+                    match: {
+                        authorId: req.user.id
+                    }
+                },
+                aggs: {
+                    tags: {
+                        terms: {
+                            field: "tags.keyword"
+                        }
+                    }
+                }
+            }
+
+        });
+
+        if (result?.body?.aggregations?.tags?.buckets) {
+            let tags = result.body.aggregations.tags.buckets.map((item) => item.key)
+            res.send(tags)
+        }
+    } catch (error) {
+        console.log(error)
+        let err = error.name ? { error: error.name } : error
+        res.send(err);
+    }
+}
+
+const deletePost = (req, res) => {
+    const { postId } = req.params;
+    if (postId) {
+        try {
+            client.delete({
+                index: postIndex,
+                id: postId,
+                refresh: true,
+            }, (err, resp) => {
+                if (resp) {
+                    console.log(resp)
+                    res.send({ success: "deleted!" });
+                    return;
+                }
+                console.log(err)
+            })
+        } catch (error) {
+            console.log(error)
+        }
+    } else {
+        console.log("Post id undefined")
+    }
+}
+
 export {
     newPost,
     getAllPost,
@@ -414,4 +471,6 @@ export {
     likePost,
     updatePost,
     getPostsOfAuthor,
+    getTagsOfUser,
+    deletePost,
 }
