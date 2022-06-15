@@ -4,24 +4,21 @@ import jwt from 'jsonwebtoken';
 export const isAuth = async (req, res, next) => {
     try {
         const token = req.body.token;
-        console.log("auth")
-        console.log(token)
+        console.log("auth", token)
         if (token) {
             const decoded = jwt.verify(token, process.env.JWT_SECRET)
 
             const user = await client.search({
                 index: 'users',
-                body: {
-                    query: {
-                        match: {
-                            _id: decoded.id
-                        }
+                query: {
+                    match: {
+                        _id: decoded.id
                     }
                 }
             });
-            if (user && user?.body?.hits?.total?.value >= 1) {
-                const newUser = user.body.hits.hits[0]._source;
-                const userID = user.body.hits.hits[0]._id;
+            if (user && user?.hits?.total?.value >= 1) {
+                const newUser = user.hits.hits[0]._source;
+                const userID = user.hits.hits[0]._id;
                 delete newUser['password']
                 newUser.id = userID;
                 console.log(newUser)
@@ -51,17 +48,15 @@ export const isAuth2 = async (req, res, next) => {
 
             const user = await client.search({
                 index: 'users',
-                body: {
-                    query: {
-                        match: {
-                            _id: decoded.id
-                        }
+                query: {
+                    match: {
+                        _id: decoded.id
                     }
                 }
             });
-            if (user && user?.body?.hits?.total?.value >= 1) {
-                const newUser = user.body.hits.hits[0]._source;
-                const userID = user.body.hits.hits[0]._id;
+            if (user && user?.hits?.total?.value >= 1) {
+                const newUser = user.hits.hits[0]._source;
+                const userID = user.hits.hits[0]._id;
                 delete newUser['password']
                 newUser.id = userID;
                 console.log(newUser)

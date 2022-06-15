@@ -6,10 +6,9 @@ const newComment = async (req, res) => {
     const { postId, createdAt = new Date(), content, parentId, like = [] } = req.body
 
     try {
-        // let err;
-        client.index({
+        const result = await client.index({
             index: Index,
-            body: {
+            document: {
                 authorId: req.user.id,
                 postId,
                 createdAt,
@@ -19,14 +18,11 @@ const newComment = async (req, res) => {
                 like
             },
             refresh: true,
-        }, async function (err, resp) {
-            if (resp.body) {
-                res.send({ success: "Add comment success!" })
-            } else if (err) {
-                console.log(err)
-                res.status(404).send({ error: err });
-            }
-        });
+        })
+        if (result) {
+            res.send({ success: "Add comment success!" })
+        }
+        // console.log('New cmt 2', result)
     } catch (error) {
         res.send(error);
         console.log(error)
@@ -40,25 +36,20 @@ const getCommentByPost = async (req, res) => {
     try {
         const result = await client.search({
             index: Index,
-            // from: from,
-            // size: size,
-            body: {
-                query: {
-                    bool: {
-                        must: [
-                            {
-                                match: {
-                                    postId: postId,
-                                },
+            query: {
+                bool: {
+                    must: [
+                        {
+                            match: {
+                                postId: postId,
                             },
-                        ],
-                    },
+                        },
+                    ],
                 },
             },
-
         });
-        if (result.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         }
@@ -71,25 +62,22 @@ const getCommentByPost = async (req, res) => {
 const countCommentedOfUser = async (req, res) => {
     try {
         const userId = req.user.id;
-        // console.log(userId)
+
         const result = await client.count({
             index: Index,
-            body: {
-                query: {
-                    bool: {
-                        must: [
-                            {
-                                match: {
-                                    authorId: userId,
-                                },
+            query: {
+                bool: {
+                    must: [
+                        {
+                            match: {
+                                authorId: userId,
                             },
-                        ],
-                    },
+                        },
+                    ],
                 },
             },
-
         });
-        res.send({ count: result.body.count, userId: userId })
+        res.send({ count: result.count, userId: userId })
     } catch (error) {
         let err = error.name ? { error: error.name } : error
         res.send(err);

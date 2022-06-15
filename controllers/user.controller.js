@@ -20,21 +20,19 @@ const registUser = async (req, res) => {
     try {
         const existsUser = await client.search({
             index: userIndex,
-            body: {
-                query: {
-                    bool: {
-                        filter: {
-                            term: {
-                                email: {
-                                    value: email
-                                }
+            query: {
+                bool: {
+                    filter: {
+                        term: {
+                            email: {
+                                value: email
                             }
                         }
                     }
                 }
             }
         })
-        if (existsUser?.body?.hits?.hits?.length > 0) {
+        if (existsUser?.hits?.hits?.length > 0) {
             res.status(400).send({ error: 'Tài khoản đã tồn tại' })
         } else {
             bcrypt.hash(password, 10, async (err, hash) => {
@@ -43,9 +41,9 @@ const registUser = async (req, res) => {
                 }
                 else {
                     let error;
-                    client.index({
+                    await client.index({
                         index: userIndex,
-                        body: {
+                        document: {
                             "name": name,
                             "email": email,
                             "password": hash,
@@ -54,18 +52,8 @@ const registUser = async (req, res) => {
                             following: [],
                             follower: [],
                         }
-                    }, function (err, resp) {
-                        if (resp?.body) {
-                            res.send({ success: "Đăng ký tài khoản thành công!" });
-                            console.log(resp.body);
-                            return;
-                        } else if (err) {
-                            error = err;
-                            res.status(404).send({ error: error.name });
-                            return;
-                        }
-                        console.log(resp)
-                    });
+                    })
+                    res.send({ success: "Đăng ký tài khoản thành công!" });
                 }
             });
         }
@@ -81,22 +69,20 @@ const loginUser = async (req, res) => {
     try {
         const result = await client.search({
             index: userIndex,
-            body: {
-                query: {
-                    bool: {
-                        filter: {
-                            term: {
-                                email: {
-                                    value: email
-                                }
-                            }
-                        }
-                    }
+            query: {
+                bool: {
+                    must: [
+                        {
+                            match: {
+                                email: email,
+                            },
+                        },
+                    ],
                 }
             }
         })
-        const users = result.body.hits.hits;
-        console.log(users)
+        const users = result.hits.hits;
+        console.log('login', users)
         if (users.length === 0) {
             res.status(400).send({ error: "Tài khoản không tồn tại" })
         } else {
@@ -135,13 +121,10 @@ const getAll = async (req, res) => {
             index: userIndex,
             from: from,
             size: size,
-            body: {
-                query: { match_all: {} }
-            },
-
+            query: { match_all: {} }
         });
-        if (result?.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         } else {
@@ -161,14 +144,15 @@ const getUserProfile = async (req, res) => {
             _source_excludes: 'password',
             id: req.user.id,
         });
-        let usr = user?.body?._source;
+        let usr = user?._source;
+        console.log("user profile", usr)
         if (usr) {
             res.status(200).send({ _id: req.user.id, ...usr });
         } else {
             res.status(404).send({ error: "Không tìm thấy user" })
         }
     } catch (error) {
-        res.status(404).send(error);
+        res.status(400).send(error);
     }
 }
 
@@ -179,17 +163,15 @@ const searchUser = async (req, res) => {
         try {
             const result = await client.search({
                 index: userIndex,
-                body: {
-                    query: {
-                        multi_match: {
-                            fields: ['name', 'email'],
-                            query: query,
-                        }
-                    },
-                }
+                query: {
+                    multi_match: {
+                        fields: ['name', 'email'],
+                        query: query,
+                    }
+                },
             });
             if (result) {
-                const data = result?.body?.hits?.hits;
+                const data = result?.hits?.hits;
                 res.status(200).send(data);
             }
         } catch (error) {
@@ -208,8 +190,8 @@ const getUserById = async (req, res) => {
             _source_excludes: 'password',
             id: userId,
         })
-        if (user?.body?._source) {
-            res.send(user.body._source);
+        if (user?._source) {
+            res.send(user._source);
         } else {
             res.status(404).send({ error: "Không tìm thấy user" })
         }
@@ -227,18 +209,17 @@ const followUser = async (req, res) => {
             const result = await client.update({
                 index: 'users',
                 id: userId,
-                body: {
-                    script: {
-                        source: `if (ctx._source.following.contains(params.authorId)) { 
+
+                script: {
+                    source: `if (ctx._source.following.contains(params.authorId)) { 
                     ctx._source.following.remove(ctx._source.following.indexOf(params.authorId))
                    }
                    else {
                      ctx._source.following.add(params.authorId)
                     }`,
-                        lang: 'painless',
-                        params: {
-                            authorId: authorId,
-                        },
+                    lang: 'painless',
+                    params: {
+                        authorId: authorId,
                     },
                 },
                 refresh: true,
@@ -259,50 +240,37 @@ const getListFolowOfUser = async (req, res) => {
 
     try {
         const { userId } = req.params;
-        client.search({
+        const result = await client.search({
             index: userIndex,
             _source_includes: 'following',
-            body: {
-                query: {
-                    bool: {
-                        should: {
-                            terms: {
-                                _id: [userId],
-                            },
+            query: {
+                bool: {
+                    should: {
+                        terms: {
+                            _id: [userId],
                         },
                     },
                 },
-            }
-        }, (err, result) => {
-            if (err) {
-                res.send(err)
-            } else {
-                let following = result?.body?.hits?.hits[0]?._source?.following;
-                if (following) {
-                    client.search({
-                        index: userIndex,
-                        _source_excludes: "password",
-                        body: {
-                            query: {
-                                ids: {
-                                    values: following
-                                }
-                            }
-                        },
-                    }, (err, resp) => {
-                        if (err) {
-                            res.send(err);
-                        }
-                        if (resp) {
-                            res.send(resp.body.hits.hits)
-                        }
-                    })
-                } else {
-                    // res.send(result)
-                    res.status(404).send("Not found")
+            },
+        });
+
+        let following = result?.hits?.hits[0]?._source?.following;
+        if (following) {
+            const result = await client.search({
+                index: userIndex,
+                _source_excludes: "password",
+                query: {
+                    ids: {
+                        values: following
+                    }
                 }
-            }
-        })
+            })
+            res.send(result.hits.hits)
+        } else {
+            // res.send(result)
+            res.status(404).send("Not found")
+        }
+
     } catch (error) {
         console.log(error);
     }

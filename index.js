@@ -1,5 +1,4 @@
 import express from 'express';
-import client from './connection.js';
 import { api } from './routers/index.js';
 import cors from 'cors';
 

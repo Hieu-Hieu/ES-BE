@@ -56,7 +56,7 @@ const newPost = async (req, res) => {
         }
         await client.index({
             index: postIndex,
-            body: newPost,
+            document: newPost,
             refresh: true,
         })
         res.status(201).send({ success: "Add blog success!" })
@@ -110,9 +110,7 @@ const updatePost = async (req, res) => {
             await client.update({
                 index: postIndex,
                 id: oldPost._id,
-                body: {
-                    doc: Post
-                },
+                doc: Post,
                 refresh: true,
             })
 
@@ -135,15 +133,12 @@ const getAllPost = async (req, res) => {
             index: postIndex,
             from: from,
             size: size,
-            // type: "_doc",
-            body: {
-                query: { match_all: {} },
-                sort: [{ publishedAt: { order: 'desc' } }],
-            },
-
+            query: { match_all: {} },
+            sort: [{ publishedAt: { order: 'desc' } }],
         });
-        if (result.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            console.log('all post', result)
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         }
@@ -159,17 +154,14 @@ const getPostBySlug = async (req, res) => {
     try {
         const result = await client.search({
             index: postIndex,
-            body: {
-                query: {
-                    match: {
-                        slug
-                    }
+            query: {
+                match: {
+                    slug
                 }
             },
-
         });
-        if (result.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         }
@@ -189,22 +181,20 @@ const searchPosts = async (req, res) => {
     try {
         const result = await client.search({
             index: postIndex,
-            body: {
-                query: {
-                    bool: {
-                        must: {
-                            multi_match: {
-                                query: keyword,
-                                fields: ['title^3', 'tags^2', 'content']
-                            }
+            query: {
+                bool: {
+                    must: {
+                        multi_match: {
+                            query: keyword,
+                            fields: ['title^3', 'tags^2', 'content']
                         }
                     }
                 },
                 sort: [{ publishedAt: { order: 'asc' } }],
             },
         });
-        if (result.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         }
@@ -218,18 +208,16 @@ const getPostByUser = async (req, res) => {
     try {
         const result = await client.search({
             index: postIndex,
-            body: {
-                query: {
-                    match: {
-                        authorId: req.user.id
-                    }
-                },
-                sort: [{ publishedAt: { order: 'desc' } }],
+            query: {
+                match: {
+                    authorId: req.user.id
+                }
             },
+            sort: [{ publishedAt: { order: 'desc' } }],
             size: 20
         });
-        if (result.body) {
-            const data = result.body.hits.hits;
+        if (result) {
+            const data = result.hits.hits;
             res.send({ total: data.length, data });
             return;
         }
@@ -245,19 +233,17 @@ const getPostsOfAuthor = async (req, res) => {
         const { userId, amount = 5 } = req.params;
         const result = await client.search({
             index: postIndex,
-            body: {
-                query: {
-                    match: {
-                        authorId: userId
-                    }
-                },
-                sort: [{ publishedAt: { order: 'desc' } }],
+            query: {
+                match: {
+                    authorId: userId
+                }
             },
+            sort: [{ publishedAt: { order: 'desc' } }],
             size: amount,
         });
-        if (result?.body) {
+        if (result) {
             console.log(result)
-            const data = result?.body?.hits?.hits;
+            const data = result?.hits?.hits;
             res.send(data);
             return;
         }
@@ -273,16 +259,14 @@ const listPostByTag = async (tag) => {
         const result = await client.search({
             index: postIndex,
             size: 5,
-            body: {
-                query: {
-                    match: {
-                        tags: tag
-                    }
-                },
-            }
+            query: {
+                match: {
+                    tags: tag
+                }
+            },
         })
 
-        kq = result?.body?.hits?.hits.map(item => {
+        kq = result?.hits?.hits.map(item => {
             return {
                 _id: item._id,
                 title: item._source.title,
@@ -305,20 +289,17 @@ const getPopularTagsWithPost = async (req, res) => {
         const result = await client.search({
             index: postIndex,
             size: 0,
-            body: {
-                aggs: {
-                    tags: {
-                        terms: {
-                            field: "tags.keyword"
-                        }
+            aggs: {
+                tags: {
+                    terms: {
+                        field: "tags.keyword"
                     }
                 }
             }
-
         });
 
-        if (result?.body?.aggregations?.tags?.buckets) {
-            let tags = result.body.aggregations.tags.buckets.map((item) => item.key)
+        if (result?.aggregations?.tags?.buckets) {
+            let tags = result.aggregations.tags.buckets.map((item) => item.key)
             tags.splice(3)
 
             const tag1 = await listPostByTag(tags[0])
@@ -357,17 +338,14 @@ const getPost = async (slug) => {
     try {
         const result = await client.search({
             index: postIndex,
-            body: {
-                query: {
-                    match: {
-                        slug
-                    }
+            query: {
+                match: {
+                    slug
                 }
-            },
-
+            }
         });
-        if (result.body) {
-            const data = result.body.hits.hits[0];
+        if (result) {
+            const data = result.hits.hits[0];
             return data
         }
     } catch (error) {
@@ -380,25 +358,22 @@ const getPost = async (slug) => {
 const likePost = async (req, res) => {
     const { postId, userId } = req.params;
     try {
-        client.update({
+        await client.update({
             index: 'posts',
             id: postId,
-            body: {
-                script: {
-                    source: `if (ctx._source.likes.contains(params.likes)) { 
+            script: {
+                source: `if (ctx._source.likes.contains(params.likes)) { 
                   ctx._source.likes.remove(ctx._source.likes.indexOf(params.likes)) 
                 } else {
                   ctx._source.likes.add(params.likes)}`,
-                    lang: 'painless',
-                    params: {
-                        likes: userId,
-                    },
+                lang: 'painless',
+                params: {
+                    likes: userId,
                 },
             },
             refresh: true,
-        }, (err, result) => {
-            res.send({ success: "Liked!" })
-        })
+        });
+        res.send({ success: "Liked!" })
     } catch (error) {
         console.log(error)
     }
@@ -406,28 +381,26 @@ const likePost = async (req, res) => {
 
 const getTagsOfUser = async (req, res) => {
     try {
+        console.log('tag')
         const result = await client.search({
             index: postIndex,
             size: 0,
-            body: {
-                query: {
-                    match: {
-                        authorId: req.user.id
-                    }
-                },
-                aggs: {
-                    tags: {
-                        terms: {
-                            field: "tags.keyword"
-                        }
+            query: {
+                match: {
+                    authorId: req.user.id
+                }
+            },
+            aggs: {
+                tags: {
+                    terms: {
+                        field: "tags.keyword"
                     }
                 }
             }
-
         });
 
-        if (result?.body?.aggregations?.tags?.buckets) {
-            let tags = result.body.aggregations.tags.buckets.map((item) => item.key)
+        if (result?.aggregations?.tags?.buckets) {
+            let tags = result.aggregations.tags.buckets.map((item) => item.key)
             res.send(tags)
         }
     } catch (error) {
@@ -437,22 +410,16 @@ const getTagsOfUser = async (req, res) => {
     }
 }
 
-const deletePost = (req, res) => {
+const deletePost = async (req, res) => {
     const { postId } = req.params;
     if (postId) {
         try {
-            client.delete({
+            await client.delete({
                 index: postIndex,
                 id: postId,
                 refresh: true,
-            }, (err, resp) => {
-                if (resp) {
-                    console.log(resp)
-                    res.send({ success: "deleted!" });
-                    return;
-                }
-                console.log(err)
-            })
+            });
+            res.send({ success: "deleted!" });
         } catch (error) {
             console.log(error)
         }
